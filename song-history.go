@@ -13,20 +13,18 @@
 package main
 
 import (
+	"fmt"
+	"golang.org/x/net/html"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
-import "golang.org/x/net/html"
-import "fmt"
-import "strings"
-
-
-const SONG_HISTORY_URL = "http://www.weqx.com/song-history"
-const DATE_KEY = "playlistdate"
-const TIME_KEY = "playlisttime"
-const TOP_5 = 5 // # of results to look for after 5PM
-const NOT_FOUND = "ERR: Attr not found"
+const songHistoryURL = "http://www.weqx.com/song-history"
+const dateKey = "playlistdate"
+const timeKey = "playlisttime"
+const top5 = 5 // # of results to look for after 5PM
+const notFoundConstant = "ERR: Attr not found"
 
 // Retrieves the value of the given attribute for the given token.
 // If the attribute exists, getAttr returns (true, <attribute value>)
@@ -38,9 +36,8 @@ func getAttr(tok html.Token, attribute string) (hasAttr bool, value string) {
 		}
 	}
 
-	return false, NOT_FOUND
+	return false, notFoundConstant
 }
-
 
 func tryWithAttribute(tok html.Token, attribute string, f func(val string)) {
 	hasAttr, val := getAttr(tok, attribute)
@@ -49,10 +46,9 @@ func tryWithAttribute(tok html.Token, attribute string, f func(val string)) {
 	}
 }
 
-
 func collectHistory(dateArg string, timeArg string) {
 
-	resp, err := http.PostForm(SONG_HISTORY_URL, url.Values{DATE_KEY: {"06/01/2018"}, TIME_KEY: {"1:00pm"}})
+	resp, err := http.PostForm(songHistoryURL, url.Values{dateKey: {"06/01/2018"}, timeKey: {"1:00pm"}})
 	if err != nil {
 		panic(err)
 	}
@@ -60,7 +56,7 @@ func collectHistory(dateArg string, timeArg string) {
 
 	tokenizer := html.NewTokenizer(resp.Body)
 	var found int
-	for found = 0; found < TOP_5; {
+	for found = 0; found < top5; {
 		tokType := tokenizer.Next()
 
 		if tokType == html.ErrorToken {
@@ -85,8 +81,8 @@ func collectHistory(dateArg string, timeArg string) {
 			})
 		}
 	}
-	if found != TOP_5 {
-		fmt.Println("found was only %d, expected %d", found, TOP_5)
+	if found != top5 {
+		fmt.Println("found was only %d, expected %d", found, top5)
 	}
 }
 
