@@ -1,5 +1,15 @@
 // WEQX Song History Web Scraper
 // Parsing is heavily based on https://schier.co/blog/2015/04/26/a-simple-web-scraper-in-go.html
+// Inferred request/response structure:
+//
+// Request
+//     playlistdate: mm/dd/yyyy date
+//     playlisttime: hh:MM[am,pm] time
+// Response HTML
+//     div.songhistoryresult has a title attribute with the song title and
+//         artist
+//
+// Note that the response HTML contains more information
 package main
 
 import (
@@ -15,26 +25,15 @@ import "strings"
 const SONG_HISTORY_URL = "http://www.weqx.com/song-history"
 const DATE_KEY = "playlistdate"
 const TIME_KEY = "playlisttime"
-
-
-func keepLines(s string, n int) string {
-	result := strings.Join(strings.Split(s, "\n")[:n], "\n")
-	return strings.Replace(result, "\r", "", -1)
-}
-
-/* Checks if google.com is reachable. */
-func sanityCheck() {
-	resp, err := http.Get("https://google.com/")
-	if err != nil {
-		panic(err)
-	}
-	defer resp.Body.Close();
-}
-
+const TOP_5 = 5 // # of results to look for after 5PM
 const NOT_FOUND = "ERR: Attr not found"
-func getAttr(tok html.Token, key string) (hasAttr bool, value string) {
+
+// Retrieves the value of the given attribute for the given token.
+// If the attribute exists, getAttr returns (true, <attribute value>)
+// If it does not exist, getAttr returns (false, <undefined>)
+func getAttr(tok html.Token, attribute string) (hasAttr bool, value string) {
 	for _, attr := range tok.Attr {
-		if attr.Key == key {
+		if attr.Key == attribute {
 			return true, attr.Val
 		}
 	}
@@ -42,7 +41,17 @@ func getAttr(tok html.Token, key string) (hasAttr bool, value string) {
 	return false, NOT_FOUND
 }
 
-func collectHistory(historyItems chan string, dateArg string, timeArg string) {
+
+func tryWithAttribute(tok html.Token, attribute string, f func(val string)) {
+	hasAttr, val := getAttr(tok, attribute)
+	if hasAttr {
+		f(val)
+	}
+}
+
+
+func collectHistory(dateArg string, timeArg string) {
+
 	resp, err := http.PostForm(SONG_HISTORY_URL, url.Values{DATE_KEY: {"06/01/2018"}, TIME_KEY: {"1:00pm"}})
 	if err != nil {
 		panic(err)
@@ -50,8 +59,14 @@ func collectHistory(historyItems chan string, dateArg string, timeArg string) {
 	defer resp.Body.Close()
 
 	tokenizer := html.NewTokenizer(resp.Body)
-	for {
+	var found int
+	for found = 0; found < TOP_5; {
 		tokType := tokenizer.Next()
+
+		if tokType == html.ErrorToken {
+			fmt.Errorf("%s", tokenizer.Token())
+			continue
+		}
 
 		switch {
 		case tokType == html.ErrorToken:
@@ -60,62 +75,21 @@ func collectHistory(historyItems chan string, dateArg string, timeArg string) {
 		case tokType == html.StartTagToken:
 			tok := tokenizer.Token()
 
-			hasClass, class := getAttr(tok, "class")
-			if hasClass && strings.Contains(class, "songhistoryitem") {
-				fmt.Println(tok)
-			}
-
-
-			// Check if the token is an <a> tag
-			isAnchor := tok.Data == "a"
-			if !isAnchor {
-				continue
-			}
-
-			// Extract the href value, if there is one
-			// ok, url := getHref(t)
-			// if !ok {
-			// 	continue
-			// }
-
-			// // Make sure the url begines in http**
-			// hasProto := strings.Index(url, "http") == 0
-			// if hasProto {
-			// 	ch <- url
-			// }
+			tryWithAttribute(tok, "class", func(classes string) {
+				if strings.Contains(classes, "songhistoryitem") {
+					found++
+					tryWithAttribute(tok, "title", func(songTitle string) {
+						fmt.Println(songTitle)
+					})
+				}
+			})
 		}
+	}
+	if found != TOP_5 {
+		fmt.Println("found was only %d, expected %d", found, TOP_5)
 	}
 }
 
 func main() {
-	sanityCheck()
-
-	historyItems := make(chan string)
-
-	// Produce song results, eventually for multiple dates concurrently
-	go func() {
-		collectHistory(historyItems, "06/01/2018", "1:00pm")
-		close(historyItems)
-	}()
-
-	// Consume song results
-	for historyItem := range historyItems {
-		fmt.Println(historyItem)
-	}
+	collectHistory("06/01/2018", "1:00pm")
 }
-
-
-
-
-// hc := http.Client{}
-//     req, err := http.NewRequest("POST", APIURL, nil)
-
-//     form := url.Values{}
-//     form.Add("ln", c.ln)
-//     form.Add("ip", c.ip)
-//     form.Add("ua", c.ua)
-//     req.PostForm = form
-//     req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-
-//     glog.Info("form was %v", form)
-// 	req, err := http.NewRequest("POST", url, strings.NewReader(form.Encode()))
